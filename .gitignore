@@ -1,0 +1,21 @@
+# Ignore all files in the sprites directory
+sprites/*
+
+# Ignore any *.p8 files
+*.p8
+
+# Ignore any *.png files
+*.png
+
+# Ignore usual IDE directories 
+.idea/
+.vscode/
+
+# Ignore any files in the .git directory
+.git/
+
+# Ignore the binary itself
+*.exe
+*.out
+parsepico8
+
