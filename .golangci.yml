@@ -1,0 +1,38 @@
+linters-settings:
+  gocritic:
+    enabled-checks:
+      - appendCombine
+      - rangeValCopy
+    disabled-checks:
+      - commentFormatting
+linters:
+  enable:
+    - errcheck
+    - goconst
+    - gocritic
+    - gocyclo
+    - gofmt
+    - goimports
+    - revive # Replaces golint
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused # Replaces deadcode, structcheck, varcheck
+    - typecheck
+  disable:
+    - gochecknoinits
+    - gochecknoglobals
+issues:
+  exclude-use-default: false
+  exclude-dirs: # Updated from skip-dirs
+    - vendor
+    - .git
+    - node_modules
+  exclude-rules:
+    - linters:
+        - govet
+      text: "composite literal uses unkeyed fields"
+run:
+  deadline: 5m
+  tests: true

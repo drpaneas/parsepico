@@ -1,4 +1,4 @@
-package main
+package main //nolint:revive
 
 import (
 	"bufio"
@@ -51,8 +51,12 @@ func main() {
 		if err := os.RemoveAll("sprites"); err == nil {
 			fmt.Println("Removed old sprites/ folder.")
 		}
-		os.Remove("map.png")
-		os.Remove("spritesheet.png")
+		if err := os.Remove("map.png"); err == nil {
+			fmt.Println("Removed old map.png.")
+		}
+		if err := os.Remove("spritesheet.png"); err == nil {
+			fmt.Println("Removed old spritesheet.png.")
+		}
 	}
 
 	// Parse sections from the PICO-8 cart
@@ -133,7 +137,7 @@ func parseSection(filePath, sectionName string) []string {
 		fmt.Fprintf(os.Stderr, "Failed to open cart file: %v\n", err)
 		return nil
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	var section []string
 	inSection := false
@@ -363,7 +367,7 @@ func saveAsPng(img *image.RGBA, path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	return png.Encode(f, img)
 }
@@ -399,7 +403,7 @@ func combineSectionsIntoSpriteSheet(numSections int) error {
 			return fmt.Errorf("failed to open %s: %v", sectionPath, err)
 		}
 		sectionImg, err := png.Decode(f)
-		f.Close()
+		f.Close() //nolint:errcheck
 		if err != nil {
 			return fmt.Errorf("failed to decode %s: %v", sectionPath, err)
 		}
@@ -413,7 +417,7 @@ func combineSectionsIntoSpriteSheet(numSections int) error {
 	if err != nil {
 		return fmt.Errorf("failed to create spritesheet.png: %v", err)
 	}
-	defer out.Close()
+	defer out.Close() //nolint:errcheck
 
 	if err := png.Encode(out, finalImg); err != nil {
 		return fmt.Errorf("failed to encode spritesheet.png: %v", err)
