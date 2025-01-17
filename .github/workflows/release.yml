@@ -6,6 +6,10 @@ on:
     tags:
       - 'v*'
 
+permissions: # Add this block
+  contents: write
+  actions: read
+
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
