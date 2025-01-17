@@ -4,9 +4,6 @@ sprites/*
 # Ignore any *.p8 files
 *.p8
 
-# Ignore any *.png files
-*.png
-
 # Ignore usual IDE directories 
 .idea/
 .vscode/
