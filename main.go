@@ -2,11 +2,11 @@ package main //nolint:revive
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -33,6 +33,60 @@ var pico8Palette = []color.RGBA{
 	{255, 204, 170, 255}, // 15: Peach
 }
 
+// SpriteSheet represents the complete sprite data for JSON output
+type SpriteSheet struct {
+	Sprites  []Sprite `json:"sprites"`
+	Metadata MetaData `json:"metadata"`
+}
+
+type Sprite struct {
+	ID     int         `json:"id"`
+	X      int         `json:"x"`
+	Y      int         `json:"y"`
+	Width  int         `json:"width"`
+	Height int         `json:"height"`
+	Pixels [][]int     `json:"pixels"`
+	Flags  SpriteFlags `json:"flags"`
+}
+
+type SpriteFlags struct {
+	Bitfield   int    `json:"bitfield"`
+	Individual []bool `json:"individual"`
+}
+
+type MetaData struct {
+	AvailableSprites AvailableSprites `json:"availableSprites"`
+	SpriteWidth      int              `json:"spriteWidth"`
+	SpriteHeight     int              `json:"spriteHeight"`
+	GridWidth        int              `json:"gridWidth"`
+	GridHeight       int              `json:"gridHeight"`
+	Palette          []PaletteColor   `json:"palette"`
+}
+
+type AvailableSprites struct {
+	Total    int            `json:"total"`
+	Ranges   []SpriteRange  `json:"ranges"`
+	Sections SpriteSections `json:"sections"`
+}
+
+type SpriteRange struct {
+	Start int `json:"start"`
+	End   int `json:"end"`
+}
+
+type SpriteSections struct {
+	Base     bool `json:"base"`
+	Section3 bool `json:"section3"`
+	Section4 bool `json:"section4"`
+}
+
+type PaletteColor struct {
+	R uint8 `json:"r"`
+	G uint8 `json:"g"`
+	B uint8 `json:"b"`
+	A uint8 `json:"a"`
+}
+
 func main() {
 	// Flags: user can specify a cart path, and optional --3 or --4
 	var cartPath string
@@ -57,6 +111,9 @@ func main() {
 		if err := os.Remove("spritesheet.png"); err == nil {
 			fmt.Println("Removed old spritesheet.png.")
 		}
+		if err := os.Remove("spritesheet.json"); err == nil {
+			fmt.Println("Removed old spritesheet.json.")
+		}
 	}
 
 	// Parse sections from the PICO-8 cart
@@ -70,6 +127,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "No __map__ section found in cart. Exiting.")
 		os.Exit(1)
 	}
+
+	// Parse flag data
+	flagData := parseFlagSection(cartPath)
 
 	// Potential dual-purpose sections
 	// Each sprite row is 8 pixels.
@@ -121,13 +181,37 @@ func main() {
 	saveSprites(spriteSheet, useSection3, useSection4)
 
 	// Then combine those sub-sections into a single sprite sheet
-	numSections := 4
-	if useSection3 || useSection4 {
-		numSections = 2
+	numSections := 2 // Base sections (0-127) are always included
+	if !useSection3 && !useSection4 {
+		numSections = 4 // All sections available
+	} else if !useSection3 {
+		numSections = 3 // Section 3 available
+	} else if !useSection4 {
+		numSections = 3 // Section 4 available
 	}
 	if err := combineSectionsIntoSpriteSheet(numSections); err != nil {
 		fmt.Println("Error combining sections:", err)
 	}
+
+	// Generate and save spritesheet JSON
+	jsonData, err := generateSpriteSheetJSON(gfxData, flagData, useSection3, useSection4)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating spritesheet JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := saveSpritesheetJSON(jsonData, "spritesheet.json"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving spritesheet.json: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Successfully generated spritesheet.json")
+
+	// Create individual sprite PNGs
+	if err := createIndividualSpritePNGs("spritesheet.json"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating individual sprite PNGs: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Successfully created individual sprite PNGs")
 }
 
 // parseSection reads lines between a given marker (e.g. __gfx__) until next marker __*
@@ -292,21 +376,62 @@ func drawBlackTile(dst *image.RGBA, tileX, tileY int) {
 	}
 }
 
+// isSpriteBlank checks if a sprite is completely empty (all pixels are transparent/empty)
+func isSpriteBlank(spriteSheet *image.RGBA, spriteNum int) bool {
+	const tileSize = 8
+	const spritesPerRow = 16
+
+	spriteY := (spriteNum / spritesPerRow) * tileSize
+	spriteX := (spriteNum % spritesPerRow) * tileSize
+
+	// Check if all pixels in the sprite are transparent (alpha = 0)
+	for yy := 0; yy < tileSize; yy++ {
+		for xx := 0; xx < tileSize; xx++ {
+			_, _, _, a := spriteSheet.At(spriteX+xx, spriteY+yy).RGBA()
+			if a > 0 {
+				return false // Found a non-transparent pixel
+			}
+		}
+	}
+	return true
+}
+
 // saveSprites writes individual sprite images plus sub-image sections
 func saveSprites(spriteSheet *image.RGBA, useSection3, useSection4 bool) {
 	const tileSize = 8
 	const spritesPerRow = 16
 
-	// Decide how many sprites to export
-	maxSprites := 256
-	if useSection3 || useSection4 {
-		maxSprites = 128
+	// Decide which sprites to export based on map usage
+	var spriteRanges []struct{ start, end int }
+
+	// Base sprites (0-127) are always available
+	spriteRanges = append(spriteRanges, struct{ start, end int }{0, 127})
+
+	// Section 3 (128-191) is available unless --3 is used
+	if !useSection3 {
+		spriteRanges = append(spriteRanges, struct{ start, end int }{128, 191})
 	}
 
-	// Decide how many sub-sections
-	numSections := 4
-	if useSection3 || useSection4 {
-		numSections = 2
+	// Section 4 (192-255) is available unless --4 is used
+	if !useSection4 {
+		spriteRanges = append(spriteRanges, struct{ start, end int }{192, 255})
+	}
+
+	// Calculate total sprites to export
+	totalSprites := 0
+	for _, r := range spriteRanges {
+		totalSprites += r.end - r.start + 1
+	}
+
+	// Decide how many sections to save
+	// Each section is 128x32 pixels (16x4 sprites)
+	numSections := 2 // Base sections (0-127) are always included
+	if !useSection3 && !useSection4 {
+		numSections = 4 // All sections available
+	} else if !useSection3 {
+		numSections = 3 // Section 3 available
+	} else if !useSection4 {
+		numSections = 3 // Section 4 available
 	}
 
 	if err := os.MkdirAll("sprites", 0755); err != nil {
@@ -315,21 +440,28 @@ func saveSprites(spriteSheet *image.RGBA, useSection3, useSection4 bool) {
 	}
 
 	// 1) Save individual sprites
-	for spriteNum := 0; spriteNum < maxSprites; spriteNum++ {
-		spriteY := (spriteNum / spritesPerRow) * tileSize
-		spriteX := (spriteNum % spritesPerRow) * tileSize
-
-		sprImg := image.NewRGBA(image.Rect(0, 0, tileSize, tileSize))
-
-		for yy := 0; yy < tileSize; yy++ {
-			for xx := 0; xx < tileSize; xx++ {
-				sprImg.Set(xx, yy, spriteSheet.At(spriteX+xx, spriteY+yy))
-			}
+	for _, r := range spriteRanges {
+		// Skip this range if both --3 and --4 are used and it's not the base range
+		if useSection3 && useSection4 && r.start > 127 {
+			continue
 		}
 
-		spritePath := fmt.Sprintf("sprites/sprite_%03d.png", spriteNum)
-		if err := saveAsPng(sprImg, spritePath); err != nil {
-			fmt.Printf("Error saving %s: %v\n", spritePath, err)
+		for spriteNum := r.start; spriteNum <= r.end; spriteNum++ {
+			spriteY := (spriteNum / spritesPerRow) * tileSize
+			spriteX := (spriteNum % spritesPerRow) * tileSize
+
+			sprImg := image.NewRGBA(image.Rect(0, 0, tileSize, tileSize))
+
+			for yy := 0; yy < tileSize; yy++ {
+				for xx := 0; xx < tileSize; xx++ {
+					sprImg.Set(xx, yy, spriteSheet.At(spriteX+xx, spriteY+yy))
+				}
+			}
+
+			spritePath := fmt.Sprintf("sprites/sprite_%03d.png", spriteNum)
+			if err := saveAsPng(sprImg, spritePath); err != nil {
+				fmt.Printf("Error saving %s: %v\n", spritePath, err)
+			}
 		}
 	}
 
@@ -338,9 +470,10 @@ func saveSprites(spriteSheet *image.RGBA, useSection3, useSection4 bool) {
 	const subImageHeight = 4 * tileSize // 32 px
 	const subImageWidth = 16 * tileSize // 128 px
 
-	for section := 0; section < numSections; section++ {
+	// Save each section sequentially
+	for i := 0; i < numSections; i++ {
 		subImg := image.NewRGBA(image.Rect(0, 0, subImageWidth, subImageHeight))
-		startY := section * subImageHeight
+		startY := i * subImageHeight
 
 		// Copy from spriteSheet
 		for yy := 0; yy < subImageHeight; yy++ {
@@ -349,13 +482,13 @@ func saveSprites(spriteSheet *image.RGBA, useSection3, useSection4 bool) {
 			}
 		}
 
-		subImagePath := fmt.Sprintf("sprites/section_%d.png", section)
+		subImagePath := fmt.Sprintf("sprites/section_%d.png", i)
 		if err := saveAsPng(subImg, subImagePath); err != nil {
 			fmt.Printf("Error saving %s: %v\n", subImagePath, err)
 		}
 	}
 
-	fmt.Printf("Saved %d sprites and %d sections into 'sprites' folder.\n", maxSprites, numSections)
+	fmt.Printf("Saved %d sprites and %d sections into 'sprites' folder.\n", totalSprites, numSections)
 }
 
 // saveAsPng encodes the RGBA image to a PNG file
@@ -385,44 +518,269 @@ func parseHexChar(c rune) int {
 	return -1
 }
 
-// combineSectionsIntoSpriteSheet stacks section_*.png top-to-bottom
+// loadImage loads an image from a file path
+func loadImage(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	img, err := png.Decode(f)
+	if err != nil {
+		return nil, err
+	}
+
+	return img, nil
+}
+
+// combineSectionsIntoSpriteSheet combines the individual section images into a single sprite sheet
 func combineSectionsIntoSpriteSheet(numSections int) error {
-	// Each section_*.png is 128x32 in this code
-	const subImageWidth = 128
-	const subImageHeight = 32
+	const sectionWidth = 128
+	const sectionHeight = 32
 
-	totalWidth := subImageWidth
-	totalHeight := subImageHeight * numSections
+	// Create a new image to hold the combined sprite sheet
+	// Height is based on the number of sections we're actually using
+	combined := image.NewRGBA(image.Rect(0, 0, sectionWidth, sectionHeight*4)) // Always create full height
 
-	finalImg := image.NewRGBA(image.Rect(0, 0, totalWidth, totalHeight))
-
+	// Combine the sections
 	for i := 0; i < numSections; i++ {
 		sectionPath := fmt.Sprintf("sprites/section_%d.png", i)
-		f, err := os.Open(sectionPath)
+		sectionImg, err := loadImage(sectionPath)
 		if err != nil {
 			return fmt.Errorf("failed to open %s: %v", sectionPath, err)
 		}
-		sectionImg, err := png.Decode(f)
-		f.Close() //nolint:errcheck
-		if err != nil {
-			return fmt.Errorf("failed to decode %s: %v", sectionPath, err)
+
+		// Copy the section into the combined image at the correct position
+		destY := i * sectionHeight
+		for y := 0; y < sectionHeight; y++ {
+			for x := 0; x < sectionWidth; x++ {
+				combined.Set(x, destY+y, sectionImg.At(x, y))
+			}
 		}
-
-		// Copy the section into finalImg at the correct vertical offset
-		destRect := image.Rect(0, i*subImageHeight, subImageWidth, (i+1)*subImageHeight)
-		draw.Draw(finalImg, destRect, sectionImg, image.Point{0, 0}, draw.Src)
 	}
 
-	out, err := os.Create("spritesheet.png")
-	if err != nil {
-		return fmt.Errorf("failed to create spritesheet.png: %v", err)
+	// Fill remaining sections with transparency
+	for i := numSections; i < 4; i++ {
+		destY := i * sectionHeight
+		for y := 0; y < sectionHeight; y++ {
+			for x := 0; x < sectionWidth; x++ {
+				combined.Set(x, destY+y, color.RGBA{0, 0, 0, 0})
+			}
+		}
 	}
-	defer out.Close() //nolint:errcheck
 
-	if err := png.Encode(out, finalImg); err != nil {
-		return fmt.Errorf("failed to encode spritesheet.png: %v", err)
+	// Save the combined sprite sheet
+	if err := saveAsPng(combined, "spritesheet.png"); err != nil {
+		return fmt.Errorf("failed to save spritesheet.png: %v", err)
 	}
 
 	fmt.Printf("Created spritesheet.png with %d sections.\n", numSections)
+	return nil
+}
+
+// parseFlagSection reads the __gff__ section and returns the flag data for each sprite
+func parseFlagSection(filePath string) []int {
+	flagData := make([]int, 256) // Initialize with 0s
+
+	section := parseSection(filePath, "__gff__")
+	if len(section) == 0 {
+		return flagData // Return all zeros if no flag data found
+	}
+
+	// Each line in __gff__ contains 256 hex chars (2 per sprite, 128 sprites per line)
+	// We need 2 lines to cover all 256 sprites
+	for lineNum, line := range section {
+		if lineNum >= 2 { // We only need first 2 lines
+			break
+		}
+
+		// Process each pair of hex chars
+		for i := 0; i < len(line)-1 && i/2 < 128; i += 2 {
+			spriteIndex := (lineNum * 128) + (i / 2)
+			if spriteIndex >= 256 {
+				break
+			}
+
+			// Convert two hex chars to a byte
+			flagValue := parseHexChar(rune(line[i]))*16 + parseHexChar(rune(line[i+1]))
+			flagData[spriteIndex] = flagValue
+		}
+	}
+
+	return flagData
+}
+
+// getFlagArray converts a flag byte into array of 8 booleans
+func getFlagArray(flagByte int) []bool {
+	flags := make([]bool, 8)
+	for i := 0; i < 8; i++ {
+		flags[i] = (flagByte & (1 << i)) != 0
+	}
+	return flags
+}
+
+// generateSpriteSheetJSON creates the JSON representation of the spritesheet
+func generateSpriteSheetJSON(gfxData []string, flagData []int, useSection3, useSection4 bool) (*SpriteSheet, error) {
+	spriteSheet := &SpriteSheet{
+		Sprites: make([]Sprite, 0),
+		Metadata: MetaData{
+			SpriteWidth:  8,
+			SpriteHeight: 8,
+			GridWidth:    16,
+			GridHeight:   16,
+			AvailableSprites: AvailableSprites{
+				Total: 128, // Default to base sprites only
+				Ranges: []SpriteRange{
+					{Start: 0, End: 127}, // Base sprites always available
+				},
+				Sections: SpriteSections{
+					Base:     true,
+					Section3: useSection3,
+					Section4: useSection4,
+				},
+			},
+			Palette: make([]PaletteColor, len(pico8Palette)),
+		},
+	}
+
+	// Convert palette to JSON format
+	for i, col := range pico8Palette {
+		spriteSheet.Metadata.Palette[i] = PaletteColor{
+			R: col.R,
+			G: col.G,
+			B: col.B,
+			A: col.A,
+		}
+	}
+
+	// Update available sprites based on sections
+	if !useSection3 {
+		spriteSheet.Metadata.AvailableSprites.Ranges = append(
+			spriteSheet.Metadata.AvailableSprites.Ranges,
+			SpriteRange{Start: 128, End: 191},
+		)
+		spriteSheet.Metadata.AvailableSprites.Total += 64
+	}
+	if !useSection4 {
+		spriteSheet.Metadata.AvailableSprites.Ranges = append(
+			spriteSheet.Metadata.AvailableSprites.Ranges,
+			SpriteRange{Start: 192, End: 255},
+		)
+		spriteSheet.Metadata.AvailableSprites.Total += 64
+	}
+
+	// Process each sprite, but only include those in available ranges
+	for spriteID := 0; spriteID < 256; spriteID++ {
+		// Skip if sprite is in an unused section
+		if (spriteID >= 128 && spriteID < 192 && useSection3) ||
+			(spriteID >= 192 && useSection4) {
+			continue
+		}
+
+		x := (spriteID % 16)
+		y := (spriteID / 16)
+
+		// Create pixel data for this sprite
+		pixels := make([][]int, 8)
+		for i := range pixels {
+			pixels[i] = make([]int, 8)
+			if y*8+i < len(gfxData) {
+				line := gfxData[y*8+i]
+				for j := 0; j < 8 && x*8+j < len(line); j++ {
+					if x*8+j < len(line) {
+						pixels[i][j] = parseHexChar(rune(line[x*8+j]))
+					}
+				}
+			}
+		}
+
+		// Create sprite entry
+		sprite := Sprite{
+			ID:     spriteID,
+			X:      x,
+			Y:      y,
+			Width:  8,
+			Height: 8,
+			Pixels: pixels,
+			Flags: SpriteFlags{
+				Bitfield:   flagData[spriteID],
+				Individual: getFlagArray(flagData[spriteID]),
+			},
+		}
+
+		spriteSheet.Sprites = append(spriteSheet.Sprites, sprite)
+	}
+
+	return spriteSheet, nil
+}
+
+// saveSpritesheetJSON saves the spritesheet data as JSON
+func saveSpritesheetJSON(spriteSheet *SpriteSheet, path string) error {
+	data, err := json.MarshalIndent(spriteSheet, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error marshaling JSON: %w", err)
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
+// createIndividualSpritePNGs creates PNG files for each sprite from the JSON data
+func createIndividualSpritePNGs(jsonPath string) error {
+	// Read the JSON file
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		return fmt.Errorf("error reading JSON file: %w", err)
+	}
+
+	var spriteSheet SpriteSheet
+	if err := json.Unmarshal(data, &spriteSheet); err != nil {
+		return fmt.Errorf("error unmarshaling JSON: %w", err)
+	}
+
+	// Create sprites directory if it doesn't exist
+	if err := os.MkdirAll("sprites", 0755); err != nil {
+		return fmt.Errorf("error creating sprites directory: %w", err)
+	}
+
+	// Create an image for each sprite, but only for available ranges
+	for _, sprite := range spriteSheet.Sprites {
+		// Check if this sprite is in an available range
+		isAvailable := false
+		for _, r := range spriteSheet.Metadata.AvailableSprites.Ranges {
+			if sprite.ID >= r.Start && sprite.ID <= r.End {
+				isAvailable = true
+				break
+			}
+		}
+
+		if !isAvailable {
+			continue
+		}
+
+		// Create a new 8x8 image
+		img := image.NewRGBA(image.Rect(0, 0, sprite.Width, sprite.Height))
+
+		// Fill the image with the sprite's pixels
+		for y := 0; y < sprite.Height; y++ {
+			for x := 0; x < sprite.Width; x++ {
+				colorIndex := sprite.Pixels[y][x]
+				if colorIndex >= 0 && colorIndex < len(spriteSheet.Metadata.Palette) {
+					col := spriteSheet.Metadata.Palette[colorIndex]
+					img.Set(x, y, color.RGBA{col.R, col.G, col.B, col.A})
+				} else {
+					// Default to black if color index is invalid
+					img.Set(x, y, color.RGBA{0, 0, 0, 255})
+				}
+			}
+		}
+
+		// Save the image with a padded sprite ID
+		filename := fmt.Sprintf("sprites/sprite_%03d.png", sprite.ID)
+		if err := saveAsPng(img, filename); err != nil {
+			return fmt.Errorf("error saving sprite %d: %w", sprite.ID, err)
+		}
+	}
+
 	return nil
 }
