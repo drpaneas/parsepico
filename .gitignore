@@ -16,3 +16,8 @@ sprites/*
 *.out
 parsepico8
 
+.qodo
+map.png
+spritesheet.png
+spritesheet.json
+map.json
