@@ -568,26 +568,6 @@ func drawBlackTile(dst *image.RGBA, tileX, tileY int) {
 	}
 }
 
-// isSpriteBlank checks if a sprite is completely empty (all pixels are transparent/empty)
-func isSpriteBlank(spriteSheet *image.RGBA, spriteNum int) bool {
-	const tileSize = 8
-	const spritesPerRow = 16
-
-	spriteY := (spriteNum / spritesPerRow) * tileSize
-	spriteX := (spriteNum % spritesPerRow) * tileSize
-
-	// Check if all pixels in the sprite are transparent (alpha = 0)
-	for yy := 0; yy < tileSize; yy++ {
-		for xx := 0; xx < tileSize; xx++ {
-			_, _, _, a := spriteSheet.At(spriteX+xx, spriteY+yy).RGBA()
-			if a > 0 {
-				return false // Found a non-transparent pixel
-			}
-		}
-	}
-	return true
-}
-
 // saveSprites writes individual sprite images plus sub-image sections
 func saveSprites(spriteSheet *image.RGBA, useSection3, useSection4 bool) {
 	const tileSize = 8
@@ -1018,17 +998,4 @@ func saveMapJSON(mapSheet *MapSheet, path string) error {
 	}
 
 	return os.WriteFile(path, data, 0644)
-}
-
-// generateTilemapJSON creates a game-dev friendly tilemap JSON format
-
-// saveTilemapJSON saves the tilemap data as JSO
-// saveJSON saves any struct as a JSON file
-func saveJSON(data interface{}, path string) error {
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("error marshaling JSON: %w", err)
-	}
-
-	return os.WriteFile(path, jsonData, 0644)
 }
