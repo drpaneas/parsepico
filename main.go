@@ -33,20 +33,24 @@ var pico8Palette = []color.RGBA{
 	{255, 204, 170, 255}, // 15: Peach
 }
 
-// SpriteSheet represents the complete sprite data for JSON output
+// SpriteSheet represents the complete spritesheet data for JSON output
 type SpriteSheet struct {
-	Sprites  []Sprite `json:"sprites"`
-	Metadata MetaData `json:"metadata"`
+	Version     string   `json:"version"`
+	Description string   `json:"description"`
+	Sprites     []Sprite `json:"sprites"`
+	Metadata    MetaData `json:"metadata"`
 }
 
 type Sprite struct {
-	ID     int         `json:"id"`
-	X      int         `json:"x"`
-	Y      int         `json:"y"`
-	Width  int         `json:"width"`
-	Height int         `json:"height"`
-	Pixels [][]int     `json:"pixels"`
-	Flags  SpriteFlags `json:"flags"`
+	ID       int         `json:"id"`
+	X        int         `json:"x"`
+	Y        int         `json:"y"`
+	Width    int         `json:"width"`
+	Height   int         `json:"height"`
+	Pixels   [][]int     `json:"pixels"`
+	Flags    SpriteFlags `json:"flags"`
+	Used     bool        `json:"used"`
+	Filename string      `json:"filename"`
 }
 
 type SpriteFlags struct {
@@ -55,11 +59,11 @@ type SpriteFlags struct {
 }
 
 type MetaData struct {
-	AvailableSprites AvailableSprites `json:"availableSprites"`
 	SpriteWidth      int              `json:"spriteWidth"`
 	SpriteHeight     int              `json:"spriteHeight"`
 	GridWidth        int              `json:"gridWidth"`
 	GridHeight       int              `json:"gridHeight"`
+	AvailableSprites AvailableSprites `json:"availableSprites"`
 	Palette          []PaletteColor   `json:"palette"`
 }
 
@@ -70,8 +74,10 @@ type AvailableSprites struct {
 }
 
 type SpriteRange struct {
-	Start int `json:"start"`
-	End   int `json:"end"`
+	Start       int    `json:"start"`
+	End         int    `json:"end"`
+	Used        bool   `json:"used"`
+	Description string `json:"description"`
 }
 
 type SpriteSections struct {
@@ -87,18 +93,54 @@ type PaletteColor struct {
 	A uint8 `json:"a"`
 }
 
+// MapSheet represents the complete map data for JSON output
+type MapSheet struct {
+	Version     string     `json:"version"`
+	Description string     `json:"description"`
+	Width       int        `json:"width"`
+	Height      int        `json:"height"`
+	Layers      []MapLayer `json:"layers"`
+}
+
+type MapLayer struct {
+	ID          int       `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Cells       []MapCell `json:"cells"`
+}
+
+type MapCell struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Sprite int `json:"sprite"`
+}
+
+// TilemapJSON represents a game-dev friendly tilemap format
+type TilemapJSON struct {
+	Version         string `json:"version"`
+	Description     string `json:"description"`
+	WidthInSprites  int    `json:"widthInSprites"`  // Width in sprites (128 by default)
+	HeightInSprites int    `json:"heightInSprites"` // Height in sprites (32 by default, 48 with --3, 64 with --3 and --4)
+	Data            []int  `json:"data"`            // 1D array of tile IDs, row-major order
+}
+
 func main() {
 	// Flags: user can specify a cart path, and optional --3 or --4
 	var cartPath string
 	var useSection3, useSection4 bool
 	var cleanSlate bool
 
-	flag.StringVar(&cartPath, "cart", "/Users/pgeorgia/Library/Application Support/pico-8/carts/test.p8",
-		"Path to the PICO-8 cartridge file (.p8)")
+	flag.StringVar(&cartPath, "cart", "", "Path to the PICO-8 cartridge file (.p8)")
 	flag.BoolVar(&useSection3, "3", false, "Include dual-purpose section 3 (sprites 128..191)")
 	flag.BoolVar(&useSection4, "4", false, "Include dual-purpose section 4 (sprites 192..255)")
 	flag.BoolVar(&cleanSlate, "clean", false, "Remove old sprites directory, map.png, spritesheet.png if they exist")
 	flag.Parse()
+
+	if cartPath == "" {
+		fmt.Fprintln(os.Stderr, "Error: --cart flag is required")
+		flag.Usage()
+		os.Exit(1)
+	}
 
 	// Clean up old artifacts if requested
 	if cleanSlate {
@@ -212,6 +254,156 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("Successfully created individual sprite PNGs")
+
+	// Generate and save map JSON
+	mapSheet, err := generateMapJSON(mapData, gfxData, useSection3, useSection4)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating map JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := saveMapJSON(mapSheet, "map.json"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving map.json: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Successfully generated map.json")
+}
+
+// generateMapJSON creates the JSON representation of the map
+func generateMapJSON(mapData, gfxData []string, useSection3, useSection4 bool) (*MapSheet, error) {
+	// Calculate map dimensions
+	width := 128 // Default width
+	height := 32 // Default height
+	if useSection3 {
+		height = 48
+	}
+	if useSection4 {
+		height = 64
+	}
+
+	mapSheet := &MapSheet{
+		Version:     "1.0",
+		Description: "PICO-8 map export",
+		Width:       width,
+		Height:      height,
+		Layers: []MapLayer{
+			{
+				ID:          0,
+				Name:        "main",
+				Description: "Main game layer",
+				Cells:       make([]MapCell, 0),
+			},
+		},
+	}
+
+	// Process main map layer (base section)
+	for y := 0; y < 32; y++ {
+		if y < len(mapData) {
+			line := mapData[y]
+			for x := 0; x < width; x++ {
+				if x*2+1 < len(line) {
+					// Each tile is represented by 2 hex digits
+					spriteY := parseHexChar(rune(line[x*2]))
+					spriteX := parseHexChar(rune(line[x*2+1]))
+					// Convert sprite coordinates to sprite ID
+					spriteID := spriteY*16 + spriteX
+
+					cell := MapCell{
+						X:      x,
+						Y:      y,
+						Sprite: spriteID,
+					}
+					mapSheet.Layers[0].Cells = append(mapSheet.Layers[0].Cells, cell)
+				}
+			}
+		}
+	}
+
+	// Process section 3 if enabled (maps to rows 32–47)
+	if useSection3 {
+		startRow := 8 * 8       // 64
+		endRow := startRow + 32 // 96
+		if endRow > len(gfxData) {
+			endRow = len(gfxData)
+		}
+		if startRow < len(gfxData) {
+			section3Data := gfxData[startRow:endRow]
+			for y := 0; y < len(section3Data); y++ {
+				line := section3Data[y]
+				yIsEven := (y % 2) == 0
+				// Iterate over half the width of the line (64 tiles per row)
+				for x := 0; x < len(line)/2; x++ {
+					// First hex digit is spriteX, second is spriteY
+					spriteX := parseHexChar(rune(line[x*2]))
+					spriteY := parseHexChar(rune(line[x*2+1]))
+					// Convert sprite coordinates to sprite ID (0-127)
+					spriteID := spriteY*16 + spriteX
+
+					if yIsEven {
+						// Left half of the map (rows 32-47)
+						cell := MapCell{
+							X:      x,
+							Y:      32 + (y / 2),
+							Sprite: spriteID,
+						}
+						mapSheet.Layers[0].Cells = append(mapSheet.Layers[0].Cells, cell)
+					} else {
+						// Right half of the map (rows 32-47)
+						cell := MapCell{
+							X:      64 + x,
+							Y:      32 + ((y - 1) / 2),
+							Sprite: spriteID,
+						}
+						mapSheet.Layers[0].Cells = append(mapSheet.Layers[0].Cells, cell)
+					}
+				}
+			}
+		}
+	}
+
+	// Process section 4 if enabled (maps to rows 48–63)
+	if useSection4 {
+		startRow := 12 * 8      // 96
+		endRow := startRow + 32 // 128
+		if endRow > len(gfxData) {
+			endRow = len(gfxData)
+		}
+		if startRow < len(gfxData) {
+			section4Data := gfxData[startRow:endRow]
+			for y := 0; y < len(section4Data); y++ {
+				line := section4Data[y]
+				yIsEven := (y % 2) == 0
+				// Iterate over half the width of the line (64 tiles per row)
+				for x := 0; x < len(line)/2; x++ {
+					// First hex digit is spriteX, second is spriteY
+					spriteX := parseHexChar(rune(line[x*2]))
+					spriteY := parseHexChar(rune(line[x*2+1]))
+					// Convert sprite coordinates to sprite ID (0-127)
+					spriteID := spriteY*16 + spriteX
+
+					if yIsEven {
+						// Left half of the map (rows 48-63)
+						cell := MapCell{
+							X:      x,
+							Y:      48 + (y / 2),
+							Sprite: spriteID,
+						}
+						mapSheet.Layers[0].Cells = append(mapSheet.Layers[0].Cells, cell)
+					} else {
+						// Right half of the map (rows 48-63)
+						cell := MapCell{
+							X:      64 + x,
+							Y:      48 + ((y - 1) / 2),
+							Sprite: spriteID,
+						}
+						mapSheet.Layers[0].Cells = append(mapSheet.Layers[0].Cells, cell)
+					}
+				}
+			}
+		}
+	}
+
+	return mapSheet, nil
 }
 
 // parseSection reads lines between a given marker (e.g. __gfx__) until next marker __*
@@ -623,7 +815,9 @@ func getFlagArray(flagByte int) []bool {
 // generateSpriteSheetJSON creates the JSON representation of the spritesheet
 func generateSpriteSheetJSON(gfxData []string, flagData []int, useSection3, useSection4 bool) (*SpriteSheet, error) {
 	spriteSheet := &SpriteSheet{
-		Sprites: make([]Sprite, 0),
+		Version:     "1.0",
+		Description: "PICO-8 spritesheet export",
+		Sprites:     make([]Sprite, 0),
 		Metadata: MetaData{
 			SpriteWidth:  8,
 			SpriteHeight: 8,
@@ -632,7 +826,12 @@ func generateSpriteSheetJSON(gfxData []string, flagData []int, useSection3, useS
 			AvailableSprites: AvailableSprites{
 				Total: 128, // Default to base sprites only
 				Ranges: []SpriteRange{
-					{Start: 0, End: 127}, // Base sprites always available
+					{
+						Start:       0,
+						End:         127,
+						Used:        true,
+						Description: "Base sprites",
+					},
 				},
 				Sections: SpriteSections{
 					Base:     true,
@@ -658,14 +857,24 @@ func generateSpriteSheetJSON(gfxData []string, flagData []int, useSection3, useS
 	if !useSection3 {
 		spriteSheet.Metadata.AvailableSprites.Ranges = append(
 			spriteSheet.Metadata.AvailableSprites.Ranges,
-			SpriteRange{Start: 128, End: 191},
+			SpriteRange{
+				Start:       128,
+				End:         191,
+				Used:        true,
+				Description: "Section 3 sprites",
+			},
 		)
 		spriteSheet.Metadata.AvailableSprites.Total += 64
 	}
 	if !useSection4 {
 		spriteSheet.Metadata.AvailableSprites.Ranges = append(
 			spriteSheet.Metadata.AvailableSprites.Ranges,
-			SpriteRange{Start: 192, End: 255},
+			SpriteRange{
+				Start:       192,
+				End:         255,
+				Used:        true,
+				Description: "Section 4 sprites",
+			},
 		)
 		spriteSheet.Metadata.AvailableSprites.Total += 64
 	}
@@ -695,6 +904,20 @@ func generateSpriteSheetJSON(gfxData []string, flagData []int, useSection3, useS
 			}
 		}
 
+		// Check if sprite is used (not blank)
+		used := false
+		for _, row := range pixels {
+			for _, pixel := range row {
+				if pixel != 0 {
+					used = true
+					break
+				}
+			}
+			if used {
+				break
+			}
+		}
+
 		// Create sprite entry
 		sprite := Sprite{
 			ID:     spriteID,
@@ -707,6 +930,8 @@ func generateSpriteSheetJSON(gfxData []string, flagData []int, useSection3, useS
 				Bitfield:   flagData[spriteID],
 				Individual: getFlagArray(flagData[spriteID]),
 			},
+			Used:     used,
+			Filename: fmt.Sprintf("sprite_%03d.png", spriteID),
 		}
 
 		spriteSheet.Sprites = append(spriteSheet.Sprites, sprite)
@@ -775,12 +1000,35 @@ func createIndividualSpritePNGs(jsonPath string) error {
 			}
 		}
 
-		// Save the image with a padded sprite ID
-		filename := fmt.Sprintf("sprites/sprite_%03d.png", sprite.ID)
+		// Save the image using the filename from the sprite data
+		filename := filepath.Join("sprites", sprite.Filename)
 		if err := saveAsPng(img, filename); err != nil {
 			return fmt.Errorf("error saving sprite %d: %w", sprite.ID, err)
 		}
 	}
 
 	return nil
+}
+
+// saveMapJSON saves the map data as JSON
+func saveMapJSON(mapSheet *MapSheet, path string) error {
+	data, err := json.MarshalIndent(mapSheet, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error marshaling map JSON: %w", err)
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
+// generateTilemapJSON creates a game-dev friendly tilemap JSON format
+
+// saveTilemapJSON saves the tilemap data as JSO
+// saveJSON saves any struct as a JSON file
+func saveJSON(data interface{}, path string) error {
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error marshaling JSON: %w", err)
+	}
+
+	return os.WriteFile(path, jsonData, 0644)
 }
