@@ -95,17 +95,11 @@ type PaletteColor struct {
 
 // MapSheet represents the complete map data for JSON output
 type MapSheet struct {
-	Version     string     `json:"version"`
-	Description string     `json:"description"`
-	Width       int        `json:"width"`
-	Height      int        `json:"height"`
-	Layers      []MapLayer `json:"layers"`
-}
-
-type MapLayer struct {
-	ID          int       `json:"id"`
-	Name        string    `json:"name"`
+	Version     string    `json:"version"`
 	Description string    `json:"description"`
+	Width       int       `json:"width"`
+	Height      int       `json:"height"`
+	Name        string    `json:"name"`
 	Cells       []MapCell `json:"cells"`
 }
 
@@ -286,14 +280,8 @@ func generateMapJSON(mapData, gfxData []string, useSection3, useSection4 bool) (
 		Description: "PICO-8 map export",
 		Width:       width,
 		Height:      height,
-		Layers: []MapLayer{
-			{
-				ID:          0,
-				Name:        "main",
-				Description: "Main game layer",
-				Cells:       make([]MapCell, 0),
-			},
-		},
+		Name:        "main",
+		Cells:       make([]MapCell, 0),
 	}
 
 	// Process main map layer (base section)
@@ -313,7 +301,7 @@ func generateMapJSON(mapData, gfxData []string, useSection3, useSection4 bool) (
 						Y:      y,
 						Sprite: spriteID,
 					}
-					mapSheet.Layers[0].Cells = append(mapSheet.Layers[0].Cells, cell)
+					mapSheet.Cells = append(mapSheet.Cells, cell)
 				}
 			}
 		}
@@ -346,7 +334,7 @@ func generateMapJSON(mapData, gfxData []string, useSection3, useSection4 bool) (
 							Y:      32 + (y / 2),
 							Sprite: spriteID,
 						}
-						mapSheet.Layers[0].Cells = append(mapSheet.Layers[0].Cells, cell)
+						mapSheet.Cells = append(mapSheet.Cells, cell)
 					} else {
 						// Right half of the map (rows 32-47)
 						cell := MapCell{
@@ -354,7 +342,7 @@ func generateMapJSON(mapData, gfxData []string, useSection3, useSection4 bool) (
 							Y:      32 + ((y - 1) / 2),
 							Sprite: spriteID,
 						}
-						mapSheet.Layers[0].Cells = append(mapSheet.Layers[0].Cells, cell)
+						mapSheet.Cells = append(mapSheet.Cells, cell)
 					}
 				}
 			}
@@ -388,7 +376,7 @@ func generateMapJSON(mapData, gfxData []string, useSection3, useSection4 bool) (
 							Y:      48 + (y / 2),
 							Sprite: spriteID,
 						}
-						mapSheet.Layers[0].Cells = append(mapSheet.Layers[0].Cells, cell)
+						mapSheet.Cells = append(mapSheet.Cells, cell)
 					} else {
 						// Right half of the map (rows 48-63)
 						cell := MapCell{
@@ -396,7 +384,7 @@ func generateMapJSON(mapData, gfxData []string, useSection3, useSection4 bool) (
 							Y:      48 + ((y - 1) / 2),
 							Sprite: spriteID,
 						}
-						mapSheet.Layers[0].Cells = append(mapSheet.Layers[0].Cells, cell)
+						mapSheet.Cells = append(mapSheet.Cells, cell)
 					}
 				}
 			}
