@@ -116,6 +116,73 @@ Soon enough ...
 - **`sprites/section_X.png`**  
   Each sub-image of the full 16×16 sprite sheet (128×32 segments). These are stacked into the final `spritesheet.png`.
 
+- **`spritesheet.json`**
+  A JSON file containing detailed information about each *available* sprite (based on `--3`/`--4` flags). Includes sprite ID, position on the sheet, pixel data (array of color indices), flags (bitfield and individual booleans), a `used` flag (true if not completely black), and the expected filename (`sprite_XXX.png`). It also contains metadata: sprite dimensions (8x8), grid dimensions (16x16), available sprite ranges, section usage flags (`--3`/`--4`), and the full PICO-8 palette.
+
+  Example (`spritesheet.json` snippet):
+  ```json
+  {
+    "version": "1.0",
+    "description": "PICO-8 spritesheet export",
+    "sprites": [
+      {
+        "id": 0,
+        "x": 0,
+        "y": 0,
+        "width": 8,
+        "height": 8,
+        "pixels": [
+          [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+          [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+          [ 0, 0, 7, 0, 0, 7, 0, 0 ],
+          [ 0, 0, 0, 7, 7, 0, 0, 0 ],
+          [ 0, 0, 0, 7, 7, 0, 0, 0 ],
+          [ 0, 0, 7, 0, 0, 7, 0, 0 ],
+          [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+          [ 0, 0, 0, 0, 0, 0, 0, 0 ]
+        ],
+        "flags": {
+          "bitfield": 0,
+          "individual": [ false, false, false, false, false, false, false, false ]
+        },
+        "used": true,
+        "filename": "sprite_000.png"
+      },
+      // ... more sprites
+    ],
+    "metadata": {
+      // ... metadata fields (palette, available ranges etc.)
+    }
+  }
+  ```
+
+- **`map.json`**
+  A JSON file describing the map layout. Includes the map dimensions (width, height - depends on `--3`/`--4`), a name ("main"), and a list of map cells. Each cell has an `x`, `y` coordinate and the `sprite` ID placed at that location. The coordinates and sprite IDs cover the base map section and potentially the shared memory sections if `--3`/`--4` are used.
+
+  Example (`map.json` snippet):
+  ```json
+  {
+    "version": "1.0",
+    "description": "PICO-8 map export",
+    "width": 128,
+    "height": 32, // or 48/64 depending on --3/--4 flags
+    "name": "main",
+    "cells": [
+      {
+        "x": 0,
+        "y": 0,
+        "sprite": 0
+      },
+      {
+        "x": 1,
+        "y": 0,
+        "sprite": 0
+      },
+      // ... many more cells
+    ]
+  }
+  ```
+
 ## Expected Output
 
 ```bash
