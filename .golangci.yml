@@ -1,38 +1,45 @@
-linters-settings:
-  gocritic:
-    enabled-checks:
-      - appendCombine
-      - rangeValCopy
-    disabled-checks:
-      - commentFormatting
+version: "2"
+run:
+  tests: true
 linters:
   enable:
-    - errcheck
     - goconst
     - gocritic
     - gocyclo
+    - revive
+  disable:
+    - gochecknoglobals
+    - gochecknoinits
+  settings:
+    gocritic:
+      enabled-checks:
+        - appendCombine
+        - rangeValCopy
+      disabled-checks:
+        - commentFormatting
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - govet
+        text: composite literal uses unkeyed fields
+    paths:
+      - vendor
+      - .git
+      - node_modules
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
     - gofmt
     - goimports
-    - revive # Replaces golint
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused # Replaces deadcode, structcheck, varcheck
-    - typecheck
-  disable:
-    - gochecknoinits
-    - gochecknoglobals
-issues:
-  exclude-use-default: false
-  exclude-dirs: # Updated from skip-dirs
-    - vendor
-    - .git
-    - node_modules
-  exclude-rules:
-    - linters:
-        - govet
-      text: "composite literal uses unkeyed fields"
-run:
-  deadline: 5m
-  tests: true
+  exclusions:
+    generated: lax
+    paths:
+      - vendor
+      - .git
+      - node_modules
+      - third_party$
+      - builtin$
+      - examples$

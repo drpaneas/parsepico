@@ -41,6 +41,7 @@ type SpriteSheet struct {
 	Metadata    MetaData `json:"metadata"`
 }
 
+// Sprite represents a single sprite with pixel data and flags.
 type Sprite struct {
 	ID       int         `json:"id"`
 	X        int         `json:"x"`
@@ -53,11 +54,13 @@ type Sprite struct {
 	Filename string      `json:"filename"`
 }
 
+// SpriteFlags contains flag data for a sprite.
 type SpriteFlags struct {
 	Bitfield   int    `json:"bitfield"`
 	Individual []bool `json:"individual"`
 }
 
+// MetaData provides metadata information for the spritesheet.
 type MetaData struct {
 	SpriteWidth      int              `json:"spriteWidth"`
 	SpriteHeight     int              `json:"spriteHeight"`
@@ -67,12 +70,14 @@ type MetaData struct {
 	Palette          []PaletteColor   `json:"palette"`
 }
 
+// AvailableSprites contains information about available sprite ranges and sections.
 type AvailableSprites struct {
 	Total    int            `json:"total"`
 	Ranges   []SpriteRange  `json:"ranges"`
 	Sections SpriteSections `json:"sections"`
 }
 
+// SpriteRange defines a range of sprites by their start and end indices.
 type SpriteRange struct {
 	Start       int    `json:"start"`
 	End         int    `json:"end"`
@@ -80,12 +85,14 @@ type SpriteRange struct {
 	Description string `json:"description"`
 }
 
+// SpriteSections indicates which sprite sections are available.
 type SpriteSections struct {
 	Base     bool `json:"base"`
 	Section3 bool `json:"section3"`
 	Section4 bool `json:"section4"`
 }
 
+// PaletteColor represents a single color in the sprite palette.
 type PaletteColor struct {
 	R uint8 `json:"r"`
 	G uint8 `json:"g"`
@@ -103,6 +110,7 @@ type MapSheet struct {
 	Cells       []MapCell `json:"cells"`
 }
 
+// MapCell represents a single cell in the map.
 type MapCell struct {
 	X      int `json:"x"`
 	Y      int `json:"y"`
@@ -217,13 +225,14 @@ func main() {
 	saveSprites(spriteSheet, useSection3, useSection4)
 
 	// Then combine those sub-sections into a single sprite sheet
-	numSections := 2 // Base sections (0-127) are always included
-	if !useSection3 && !useSection4 {
+	var numSections int
+	switch {
+	case !useSection3 && !useSection4:
 		numSections = 4 // All sections available
-	} else if !useSection3 {
-		numSections = 3 // Section 3 available
-	} else if !useSection4 {
-		numSections = 3 // Section 4 available
+	case !useSection3 || !useSection4:
+		numSections = 3 // Either Section 3 or Section 4 available
+	default:
+		numSections = 2 // Only the base section available
 	}
 	if err := combineSectionsIntoSpriteSheet(numSections); err != nil {
 		fmt.Println("Error combining sections:", err)
@@ -585,13 +594,14 @@ func saveSprites(spriteSheet *image.RGBA, useSection3, useSection4 bool) {
 
 	// Decide how many sections to save
 	// Each section is 128x32 pixels (16x4 sprites)
-	numSections := 2 // Base sections (0-127) are always included
-	if !useSection3 && !useSection4 {
+	var numSections int // Base sections (0-127) are always included
+	switch {
+	case !useSection3 && !useSection4:
 		numSections = 4 // All sections available
-	} else if !useSection3 {
-		numSections = 3 // Section 3 available
-	} else if !useSection4 {
-		numSections = 3 // Section 4 available
+	case !useSection3 || !useSection4:
+		numSections = 3 // Either Section 3 or Section 4 available
+	default:
+		numSections = 2 // Only the base section available
 	}
 
 	if err := os.MkdirAll("sprites", 0755); err != nil {
@@ -684,7 +694,11 @@ func loadImage(path string) (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "error closing file %s: %v\n", path, cerr)
+		}
+	}()
 
 	img, err := png.Decode(f)
 	if err != nil {
