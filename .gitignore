@@ -21,3 +21,6 @@ map.png
 spritesheet.png
 spritesheet.json
 map.json
+
+.DS_Store
+parsepico

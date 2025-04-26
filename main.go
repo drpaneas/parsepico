@@ -144,6 +144,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Expand ~ and make the path absolute
+	if strings.HasPrefix(cartPath, "~/") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error getting user home directory: %v\n", err)
+			os.Exit(1)
+		}
+		cartPath = filepath.Join(homeDir, cartPath[2:])
+	}
+	var err error
+	cartPath, err = filepath.Abs(cartPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error making path absolute: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Clean up old artifacts if requested
 	if cleanSlate {
 		if err := os.RemoveAll("sprites"); err == nil {
@@ -167,9 +183,9 @@ func main() {
 		os.Exit(1)
 	}
 	mapData := parseSection(cartPath, "__map__")
-	if len(mapData) == 0 {
-		fmt.Fprintln(os.Stderr, "No __map__ section found in cart. Exiting.")
-		os.Exit(1)
+	hasMapData := len(mapData) > 0 // Check if map data exists
+	if !hasMapData {
+		fmt.Println("No __map__ section found. Skipping map processing.")
 	}
 
 	// Parse flag data
@@ -215,10 +231,13 @@ func main() {
 		mapHeight = 64
 	}
 
-	// Render map with optional dual-purpose sections
-	mapImage := renderMap(mapData, dualPurposeSection1, dualPurposeSection2, spriteSheet, 128, mapHeight)
-	if err := saveAsPng(mapImage, "map.png"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving map.png: %v\n", err)
+	// Render map with optional dual-purpose sections only if map data exists
+	if hasMapData {
+		mapImage := renderMap(mapData, dualPurposeSection1, dualPurposeSection2, spriteSheet, 128, mapHeight)
+		if err := saveAsPng(mapImage, "map.png"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving map.png: %v\n", err)
+		}
+		fmt.Println("Successfully generated map.png")
 	}
 
 	// Save sprites (some or all) and sprite sub-sections
@@ -258,18 +277,20 @@ func main() {
 	}
 	fmt.Println("Successfully created individual sprite PNGs")
 
-	// Generate and save map JSON
-	mapSheet, err := generateMapJSON(mapData, gfxData, useSection3, useSection4)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error generating map JSON: %v\n", err)
-		os.Exit(1)
-	}
+	// Generate and save map JSON only if map data exists
+	if hasMapData {
+		mapSheet, err := generateMapJSON(mapData, gfxData, useSection3, useSection4)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error generating map JSON: %v\n", err)
+			os.Exit(1)
+		}
 
-	if err := saveMapJSON(mapSheet, "map.json"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving map.json: %v\n", err)
-		os.Exit(1)
+		if err := saveMapJSON(mapSheet, "map.json"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving map.json: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Successfully generated map.json")
 	}
-	fmt.Println("Successfully generated map.json")
 }
 
 // generateMapJSON creates the JSON representation of the map
