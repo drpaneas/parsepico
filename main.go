@@ -591,28 +591,6 @@ func saveSprites(spriteSheet *image.RGBA, useSection3, useSection4 bool) {
 	const tileSize = 8
 	const spritesPerRow = 16
 
-	// Decide which sprites to export based on map usage
-	var spriteRanges []struct{ start, end int }
-
-	// Base sprites (0-127) are always available
-	spriteRanges = append(spriteRanges, struct{ start, end int }{0, 127})
-
-	// Section 3 (128-191) is available unless --3 is used
-	if !useSection3 {
-		spriteRanges = append(spriteRanges, struct{ start, end int }{128, 191})
-	}
-
-	// Section 4 (192-255) is available unless --4 is used
-	if !useSection4 {
-		spriteRanges = append(spriteRanges, struct{ start, end int }{192, 255})
-	}
-
-	// Calculate total sprites to export
-	totalSprites := 0
-	for _, r := range spriteRanges {
-		totalSprites += r.end - r.start + 1
-	}
-
 	// Decide how many sections to save
 	// Each section is 128x32 pixels (16x4 sprites)
 	var numSections int // Base sections (0-127) are always included
@@ -630,32 +608,6 @@ func saveSprites(spriteSheet *image.RGBA, useSection3, useSection4 bool) {
 		return
 	}
 
-	// 1) Save individual sprites
-	for _, r := range spriteRanges {
-		// Skip this range if both --3 and --4 are used and it's not the base range
-		if useSection3 && useSection4 && r.start > 127 {
-			continue
-		}
-
-		for spriteNum := r.start; spriteNum <= r.end; spriteNum++ {
-			spriteY := (spriteNum / spritesPerRow) * tileSize
-			spriteX := (spriteNum % spritesPerRow) * tileSize
-
-			sprImg := image.NewRGBA(image.Rect(0, 0, tileSize, tileSize))
-
-			for yy := 0; yy < tileSize; yy++ {
-				for xx := 0; xx < tileSize; xx++ {
-					sprImg.Set(xx, yy, spriteSheet.At(spriteX+xx, spriteY+yy))
-				}
-			}
-
-			spritePath := fmt.Sprintf("sprites/sprite_%03d.png", spriteNum)
-			if err := saveAsPng(sprImg, spritePath); err != nil {
-				fmt.Printf("Error saving %s: %v\n", spritePath, err)
-			}
-		}
-	}
-
 	// 2) Save the sub-image sections (each 128x32)
 	//    (section_0.png, section_1.png, ... up to numSections-1)
 	const subImageHeight = 4 * tileSize // 32 px
@@ -667,19 +619,32 @@ func saveSprites(spriteSheet *image.RGBA, useSection3, useSection4 bool) {
 		startY := i * subImageHeight
 
 		// Copy from spriteSheet
-		for yy := 0; yy < subImageHeight; yy++ {
-			for xx := 0; xx < subImageWidth; xx++ {
-				subImg.Set(xx, yy, spriteSheet.At(xx, startY+yy))
+		// Check bounds for robustness
+		copyHeight := subImageHeight
+		if startY+copyHeight > spriteSheet.Bounds().Dy() {
+			copyHeight = spriteSheet.Bounds().Dy() - startY
+		}
+		copyWidth := subImageWidth
+		if copyWidth > spriteSheet.Bounds().Dx() {
+			copyWidth = spriteSheet.Bounds().Dx()
+		}
+
+		if copyHeight > 0 && copyWidth > 0 {
+			for yy := 0; yy < copyHeight; yy++ {
+				for xx := 0; xx < copyWidth; xx++ {
+					subImg.Set(xx, yy, spriteSheet.At(xx, startY+yy))
+				}
 			}
 		}
 
 		subImagePath := fmt.Sprintf("sprites/section_%d.png", i)
 		if err := saveAsPng(subImg, subImagePath); err != nil {
-			fmt.Printf("Error saving %s: %v\n", subImagePath, err)
+			// Use Fprintf for stderr, fix quote
+			fmt.Fprintf(os.Stderr, "Error saving %s: %v\n", subImagePath, err)
 		}
 	}
 
-	fmt.Printf("Saved %d sprites and %d sections into 'sprites' folder.\n", totalSprites, numSections)
+	fmt.Printf("Saved %d sections into 'sprites' folder.\n", numSections)
 }
 
 // saveAsPng encodes the RGBA image to a PNG file
@@ -923,16 +888,13 @@ func generateSpriteSheetJSON(gfxData []string, flagData []int, useSection3, useS
 
 		// Create sprite entry
 		sprite := Sprite{
-			ID:     spriteID,
-			X:      x,
-			Y:      y,
-			Width:  8,
-			Height: 8,
-			Pixels: pixels,
-			Flags: SpriteFlags{
-				Bitfield:   flagData[spriteID],
-				Individual: getFlagArray(flagData[spriteID]),
-			},
+			ID:       spriteID,
+			X:        x,
+			Y:        y,
+			Width:    8,
+			Height:   8,
+			Pixels:   pixels,
+			Flags:    SpriteFlags{Bitfield: flagData[spriteID], Individual: getFlagArray(flagData[spriteID])},
 			Used:     used,
 			Filename: fmt.Sprintf("sprite_%03d.png", spriteID),
 		}
@@ -1003,10 +965,29 @@ func createIndividualSpritePNGs(jsonPath string) error {
 			}
 		}
 
-		// Save the image using the filename from the sprite data
-		filename := filepath.Join("sprites", sprite.Filename)
-		if err := saveAsPng(img, filename); err != nil {
-			return fmt.Errorf("error saving sprite %d: %w", sprite.ID, err)
+		// --- Add check for all-black sprite before saving ---
+		shouldSave := false
+		specificBlackColor := pico8Palette[0] // Assumes pico8Palette is accessible or passed
+		for y := 0; y < img.Bounds().Dy(); y++ {
+			for x := 0; x < img.Bounds().Dx(); x++ {
+				if img.RGBAAt(x, y) != specificBlackColor {
+					shouldSave = true
+					break
+				}
+			}
+			if shouldSave {
+				break
+			}
+		}
+		// --- End check ---
+
+		// Only save if not all black
+		if shouldSave {
+			// Save the image using the filename from the sprite data
+			filename := filepath.Join("sprites", sprite.Filename)
+			if err := saveAsPng(img, filename); err != nil {
+				return fmt.Errorf("error saving sprite %d: %w", sprite.ID, err)
+			}
 		}
 	}
 
