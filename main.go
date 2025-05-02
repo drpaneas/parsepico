@@ -326,12 +326,15 @@ func generateMapJSON(mapData, gfxData []string, useSection3, useSection4 bool) (
 					// Convert sprite coordinates to sprite ID
 					spriteID := spriteY*16 + spriteX
 
-					cell := MapCell{
-						X:      x,
-						Y:      y,
-						Sprite: spriteID,
+					// Skip cells with sprite ID 0
+					if spriteID != 0 {
+						cell := MapCell{
+							X:      x,
+							Y:      y,
+							Sprite: spriteID,
+						}
+						mapSheet.Cells = append(mapSheet.Cells, cell)
 					}
-					mapSheet.Cells = append(mapSheet.Cells, cell)
 				}
 			}
 		}
@@ -359,20 +362,26 @@ func generateMapJSON(mapData, gfxData []string, useSection3, useSection4 bool) (
 
 					if yIsEven {
 						// Left half of the map (rows 32-47)
-						cell := MapCell{
-							X:      x,
-							Y:      32 + (y / 2),
-							Sprite: spriteID,
+						// Skip cells with sprite ID 0
+						if spriteID != 0 {
+							cell := MapCell{
+								X:      x,
+								Y:      32 + (y / 2),
+								Sprite: spriteID,
+							}
+							mapSheet.Cells = append(mapSheet.Cells, cell)
 						}
-						mapSheet.Cells = append(mapSheet.Cells, cell)
 					} else {
 						// Right half of the map (rows 32-47)
-						cell := MapCell{
-							X:      64 + x,
-							Y:      32 + ((y - 1) / 2),
-							Sprite: spriteID,
+						// Skip cells with sprite ID 0
+						if spriteID != 0 {
+							cell := MapCell{
+								X:      64 + x,
+								Y:      32 + ((y - 1) / 2),
+								Sprite: spriteID,
+							}
+							mapSheet.Cells = append(mapSheet.Cells, cell)
 						}
-						mapSheet.Cells = append(mapSheet.Cells, cell)
 					}
 				}
 			}
@@ -401,20 +410,26 @@ func generateMapJSON(mapData, gfxData []string, useSection3, useSection4 bool) (
 
 					if yIsEven {
 						// Left half of the map (rows 48-63)
-						cell := MapCell{
-							X:      x,
-							Y:      48 + (y / 2),
-							Sprite: spriteID,
+						// Skip cells with sprite ID 0
+						if spriteID != 0 {
+							cell := MapCell{
+								X:      x,
+								Y:      48 + (y / 2),
+								Sprite: spriteID,
+							}
+							mapSheet.Cells = append(mapSheet.Cells, cell)
 						}
-						mapSheet.Cells = append(mapSheet.Cells, cell)
 					} else {
 						// Right half of the map (rows 48-63)
-						cell := MapCell{
-							X:      64 + x,
-							Y:      48 + ((y - 1) / 2),
-							Sprite: spriteID,
+						// Skip cells with sprite ID 0
+						if spriteID != 0 {
+							cell := MapCell{
+								X:      64 + x,
+								Y:      48 + ((y - 1) / 2),
+								Sprite: spriteID,
+							}
+							mapSheet.Cells = append(mapSheet.Cells, cell)
 						}
-						mapSheet.Cells = append(mapSheet.Cells, cell)
 					}
 				}
 			}
