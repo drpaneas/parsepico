@@ -914,7 +914,10 @@ func generateSpriteSheetJSON(gfxData []string, flagData []int, useSection3, useS
 			Filename: fmt.Sprintf("sprite_%03d.png", spriteID),
 		}
 
-		spriteSheet.Sprites = append(spriteSheet.Sprites, sprite)
+		// Only include sprites that have at least one non-zero pixel
+		if used {
+			spriteSheet.Sprites = append(spriteSheet.Sprites, sprite)
+		}
 	}
 
 	return spriteSheet, nil
@@ -948,21 +951,8 @@ func createIndividualSpritePNGs(jsonPath string) error {
 		return fmt.Errorf("error creating sprites directory: %w", err)
 	}
 
-	// Create an image for each sprite, but only for available ranges
+	// Create an image for each sprite in the spritesheet.json
 	for _, sprite := range spriteSheet.Sprites {
-		// Check if this sprite is in an available range
-		isAvailable := false
-		for _, r := range spriteSheet.Metadata.AvailableSprites.Ranges {
-			if sprite.ID >= r.Start && sprite.ID <= r.End {
-				isAvailable = true
-				break
-			}
-		}
-
-		if !isAvailable {
-			continue
-		}
-
 		// Create a new 8x8 image
 		img := image.NewRGBA(image.Rect(0, 0, sprite.Width, sprite.Height))
 
@@ -980,29 +970,10 @@ func createIndividualSpritePNGs(jsonPath string) error {
 			}
 		}
 
-		// --- Add check for all-black sprite before saving ---
-		shouldSave := false
-		specificBlackColor := pico8Palette[0] // Assumes pico8Palette is accessible or passed
-		for y := 0; y < img.Bounds().Dy(); y++ {
-			for x := 0; x < img.Bounds().Dx(); x++ {
-				if img.RGBAAt(x, y) != specificBlackColor {
-					shouldSave = true
-					break
-				}
-			}
-			if shouldSave {
-				break
-			}
-		}
-		// --- End check ---
-
-		// Only save if not all black
-		if shouldSave {
-			// Save the image using the filename from the sprite data
-			filename := filepath.Join("sprites", sprite.Filename)
-			if err := saveAsPng(img, filename); err != nil {
-				return fmt.Errorf("error saving sprite %d: %w", sprite.ID, err)
-			}
+		// Save the image using the filename from the sprite data
+		filename := filepath.Join("sprites", sprite.Filename)
+		if err := saveAsPng(img, filename); err != nil {
+			return fmt.Errorf("error saving sprite %d: %w", sprite.ID, err)
 		}
 	}
 
