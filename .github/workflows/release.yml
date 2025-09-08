@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 0 # Important: this fetches all history for tags and commits needed by GoReleaser
 
       - name: Set up Go environment
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: 'go.mod'
 
